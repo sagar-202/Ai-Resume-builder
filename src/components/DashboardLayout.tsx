@@ -12,7 +12,6 @@ const navItems = [
   { label: "Checklist", path: "/prp/07-test", icon: ListChecks },
   { label: "Ship", path: "/prp/08-ship", icon: Rocket },
   { label: "Proof", path: "/prp/proof", icon: Trophy },
-  { label: "Project 3", path: "/rb/01-problem", icon: Rocket },
 ];
 
 const DashboardLayout = () => {
