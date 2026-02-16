@@ -19,6 +19,10 @@ import ShipPage from "./pages/ShipPage";
 import ProofPage from "./pages/ProofPage";
 import RBStepPage from "./pages/rb/RBStepPage";
 import RBProofPage from "./pages/rb/RBProofPage";
+import ResumeHome from "./pages/resume/ResumeHome";
+import ResumeBuilder from "./pages/resume/ResumeBuilder";
+import ResumePreview from "./pages/resume/ResumePreview";
+import ResumeProof from "./pages/resume/ResumeProof";
 
 const queryClient = new QueryClient();
 
@@ -29,7 +33,12 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<LandingPage />} />
+          <Route path="/" element={<ResumeHome />} />
+          <Route path="/builder" element={<ResumeBuilder />} />
+          <Route path="/preview" element={<ResumePreview />} />
+          <Route path="/proof" element={<ResumeProof />} />
+
+          {/* Legacy Dashboard Routes */}
           <Route path="/dashboard" element={<DashboardLayout />}>
             <Route index element={<DashboardPage />} />
             <Route path="practice" element={<PracticePage />} />
