@@ -8,7 +8,7 @@ const ResumeNavbar = () => {
     const navItems = [
         { label: "Builder", path: "/builder" },
         { label: "Preview", path: "/preview" },
-        { label: "Proof", path: "/proof" },
+        { label: "Proof", path: "/rb/proof" },
     ];
 
     return (

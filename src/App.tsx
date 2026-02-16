@@ -36,7 +36,7 @@ const App = () => (
           <Route path="/" element={<ResumeHome />} />
           <Route path="/builder" element={<ResumeBuilder />} />
           <Route path="/preview" element={<ResumePreview />} />
-          <Route path="/proof" element={<ResumeProof />} />
+          <Route path="/proof" element={<RBProofPage />} />
 
           {/* Legacy Dashboard Routes */}
           <Route path="/dashboard" element={<DashboardLayout />}>

@@ -1,74 +1,188 @@
 
+import { useState, useEffect } from "react";
 import ResumeNavbar from "@/components/resume/ResumeNavbar";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Download } from "lucide-react";
+import { ArrowLeft, Download, Printer, Copy, Check, AlertCircle, TrendingUp } from "lucide-react";
 import { Link } from "react-router-dom";
+import { ResumeData, initialData } from "@/types/resume";
+import ResumePreviewView from "@/components/resume/ResumePreviewView";
+import { toast } from "sonner";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { calculateATSScore, ATSResults } from "@/lib/ats-scorer";
+import { cn } from "@/lib/utils";
+
+const STORAGE_KEY = "resumeBuilderData";
 
 const ResumePreview = () => {
-    // In a real app, this would consume context or state.
-    // For skeleton, we'll confirm layout structure.
+    const [data, setData] = useState<ResumeData>(initialData);
+    const [isLoaded, setIsLoaded] = useState(false);
+    const [ats, setAts] = useState<ATSResults>({ score: 0, level: "Needs Work", color: "text-red-500", suggestions: [] });
+    const [copied, setCopied] = useState(false);
+
+    useEffect(() => {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                if (!parsed.selectedTemplate) parsed.selectedTemplate = 'modern';
+
+                // Ensure skills migration
+                if (typeof parsed.skills === 'string') {
+                    parsed.skills = { technical: [parsed.skills], soft: [], tools: [] };
+                }
+
+                setData(parsed);
+                setAts(calculateATSScore(parsed));
+            } catch (e) {
+                console.error("Failed", e);
+            }
+        }
+        setIsLoaded(true);
+    }, []);
+
+    const handlePrint = () => {
+        window.print();
+    };
+
+    const handleDownload = () => {
+        toast.success("PDF export ready! Check your downloads.", {
+            description: "Opening print dialog..."
+        });
+        setTimeout(() => window.print(), 800);
+    };
+
+    const handleCopyText = () => {
+        const technicalSkills = data.skills.technical?.join(", ") || "";
+        const softSkills = data.skills.soft?.join(", ") || "";
+        const tools = data.skills.tools?.join(", ") || "";
+
+        const text = `
+${data.fullName.toUpperCase()}
+${data.email} | ${data.phone} | ${data.location}
+${data.linkedin} | ${data.github}
+
+SUMMARY
+${data.summary}
+
+SKILLS
+${technicalSkills ? `Technical: ${technicalSkills}` : ""}
+${tools ? `Tools: ${tools}` : ""}
+${softSkills ? `Soft Skills: ${softSkills}` : ""}
+
+EXPERIENCE
+${data.experience.map(e => `${e.role} at ${e.company} (${e.duration})\n${e.description}`).join('\n\n')}
+
+PROJECTS
+${data.projects.map(p => {
+            const links = [p.liveUrl, p.github].filter(Boolean).join(" | ");
+            const stack = p.techStack?.join(", ");
+            return `${p.name} ${links ? `(${links})` : ""}\nTech: ${stack}\n${p.description}`;
+        }).join('\n\n')}
+
+EDUCATION
+${data.education.map(e => `${e.school} - ${e.degree} (${e.year})`).join('\n')}
+        `.trim();
+
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        toast.success("Resume copied to clipboard");
+        setTimeout(() => setCopied(false), 2000);
+    };
+
+    if (!isLoaded) return <div className="min-h-screen bg-muted/30" />;
+
+    // Circular Progress CSS
+    const circumference = 2 * Math.PI * 45; // radius 45
+    const dashoffset = circumference - (ats.score / 100) * circumference;
 
     return (
-        <div className="min-h-screen bg-muted/30 flex flex-col">
-            <ResumeNavbar />
+        <div className="min-h-screen bg-muted/30 flex flex-col print:bg-white print:min-h-0">
+            <div className="print:hidden">
+                <ResumeNavbar />
+            </div>
 
-            <main className="flex-1 container max-w-4xl mx-auto py-12 px-4">
-                <div className="mb-8 flex items-center justify-between">
-                    <Button variant="ghost" asChild>
-                        <Link to="/builder">
-                            <ArrowLeft className="mr-2 h-4 w-4" />
-                            Back to Editor
-                        </Link>
-                    </Button>
-                    <div className="flex gap-4">
-                        <Button variant="outline">
-                            Change Template
+            <main className="flex-1 container max-w-7xl mx-auto py-8 px-4 print:p-0 print:max-w-none flex flex-col lg:flex-row gap-8">
+
+                {/* LEFT COLUMN: Controls & ATS Score (Preview Mode) */}
+                <div className="w-full lg:w-1/3 space-y-6 print:hidden">
+                    <div className="flex items-center gap-2 mb-4">
+                        <Button variant="ghost" asChild className="-ml-2">
+                            <Link to="/builder">
+                                <ArrowLeft className="mr-2 h-4 w-4" />
+                                Back to Editor
+                            </Link>
                         </Button>
-                        <Button>
-                            <Download className="mr-2 h-4 w-4" />
-                            Download PDF
-                        </Button>
+                    </div>
+
+                    {/* ACTIONS CARD */}
+                    <div className="bg-white p-6 rounded-xl shadow-sm border space-y-4">
+                        <h3 className="font-bold text-lg">Actions</h3>
+                        <div className="grid grid-cols-1 gap-3">
+                            <Button variant="outline" onClick={handleCopyText} className="w-full justify-start">
+                                {copied ? <Check className="mr-2 h-4 w-4" /> : <Copy className="mr-2 h-4 w-4" />}
+                                Copy as Text
+                            </Button>
+                            <Button onClick={handleDownload} className="w-full justify-start">
+                                <Download className="mr-2 h-4 w-4" />
+                                Download PDF
+                            </Button>
+                        </div>
+                    </div>
+
+                    {/* ATS SCORE CARD */}
+                    <div className="bg-white p-6 rounded-xl shadow-sm border space-y-6">
+                        <div className="flex items-center justify-between">
+                            <h3 className="font-bold text-lg flex items-center gap-2">
+                                <TrendingUp className="h-5 w-5 text-blue-600" />
+                                ATS Score
+                            </h3>
+                            <span className={cn("text-xs font-bold px-2 py-1 rounded-full bg-slate-100", ats.color)}>
+                                {ats.level}
+                            </span>
+                        </div>
+
+                        {/* Circular Progress */}
+                        <div className="relative w-40 h-40 mx-auto">
+                            <svg className="w-full h-full transform -rotate-90">
+                                <circle cx="80" cy="80" r="45" fill="none" stroke="#e2e8f0" strokeWidth="8" />
+                                <circle
+                                    cx="80" cy="80" r="45" fill="none"
+                                    stroke="currentColor" strokeWidth="8" strokeLinecap="round"
+                                    className={cn("transition-all duration-1000 ease-out", ats.color)}
+                                    style={{ strokeDasharray: circumference, strokeDashoffset: dashoffset }}
+                                />
+                            </svg>
+                            <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                <span className={cn("text-4xl font-bold", ats.color)}>{ats.score}</span>
+                                <span className="text-xs text-muted-foreground uppercase">Score</span>
+                            </div>
+                        </div>
+
+                        {/* Suggestions */}
+                        {ats.suggestions.length > 0 ? (
+                            <div className="space-y-3 pt-2 border-t">
+                                <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Improvements</h4>
+                                <ul className="space-y-2">
+                                    {ats.suggestions.map((s, i) => (
+                                        <li key={i} className="text-sm text-slate-700 flex items-start gap-2">
+                                            <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                                            <span>{s}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        ) : (
+                            <div className="bg-green-50 p-4 rounded-lg border border-green-100 text-center">
+                                <p className="text-sm font-medium text-green-800">🎉 Perfect Score! Your resume is ready.</p>
+                            </div>
+                        )}
                     </div>
                 </div>
 
-                <div className="bg-white text-black p-12 shadow-lg min-h-[1123px] w-full font-serif mx-auto">
-                    {/* Mock Content for Preview Route */}
-                    <div className="text-center border-b-2 border-black pb-8 mb-8">
-                        <h1 className="text-5xl font-bold uppercase tracking-wide mb-4">Alex Morgan</h1>
-                        <div className="flex justify-center flex-wrap gap-4 text-sm font-sans text-gray-600">
-                            <span>alex.morgan@example.com</span>
-                            <span>• +1 (555) 123-4567</span>
-                            <span>• San Francisco, CA</span>
-                        </div>
-                    </div>
-
-                    <section className="mb-8">
-                        <h2 className="text-xl font-bold uppercase border-b border-gray-300 mb-4 pb-1">Professional Summary</h2>
-                        <p className="leading-relaxed text-gray-800">
-                            Experienced Full Stack Developer with a passion for building scalable web applications.
-                            Proven track record in delivering high-quality code and leading agile teams.
-                            Adept at cloud architecture and modern frontend frameworks.
-                        </p>
-                    </section>
-
-                    <section className="mb-8">
-                        <h2 className="text-xl font-bold uppercase border-b border-gray-300 mb-4 pb-1">Experience</h2>
-                        <div className="space-y-6">
-                            <div>
-                                <div className="flex justify-between font-bold">
-                                    <span className="text-lg">Senior Developer</span>
-                                    <span>2022 - Present</span>
-                                </div>
-                                <div className="font-semibold text-gray-700 mb-2">Tech Solutions Inc.</div>
-                                <p className="text-gray-800">
-                                    Led development of core platform features. Improved performance by 40%.
-                                    Mentored junior developers and implemented CI/CD pipelines.
-                                </p>
-                            </div>
-                        </div>
-                    </section>
-                    <div className="p-8 border-2 border-dashed border-gray-200 rounded-lg text-center text-gray-400 mt-12 bg-gray-50/50">
-                        <p>Preview Mode - Content flows from Builder</p>
+                {/* RIGHT COLUMN: The Resume Preview */}
+                <div className="w-full lg:w-2/3">
+                    <div className="shadow-2xl print:shadow-none bg-white">
+                        <ResumePreviewView data={data} />
                     </div>
                 </div>
             </main>

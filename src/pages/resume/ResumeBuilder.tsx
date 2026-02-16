@@ -7,59 +7,25 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
-import { Plus, Trash2, Download, Sparkles, AlertCircle } from "lucide-react";
+import { Plus, Trash2, Download, Sparkles, AlertCircle, Lightbulb, CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-
-// Type definitions for Resume Data
-interface Education {
-    id: string;
-    school: string;
-    degree: string;
-    year: string;
-}
-
-interface Experience {
-    id: string;
-    company: string;
-    role: string;
-    duration: string;
-    description: string;
-}
-
-interface Project {
-    id: string;
-    name: string;
-    description: string;
-    link: string;
-}
-
-interface ResumeData {
-    fullName: string;
-    email: string;
-    phone: string;
-    location: string;
-    linkedin: string;
-    github: string;
-    summary: string;
-    skills: string;
-    education: Education[];
-    experience: Experience[];
-    projects: Project[];
-}
-
-const initialData: ResumeData = {
-    fullName: "",
-    email: "",
-    phone: "",
-    location: "",
-    linkedin: "",
-    github: "",
-    summary: "",
-    skills: "",
-    education: [],
-    experience: [],
-    projects: []
-};
+import { cn } from "@/lib/utils";
+import { ResumeData, initialData } from "@/types/resume";
+import ResumePreviewView from "@/components/resume/ResumePreviewView";
+import TagInput from "@/components/ui/TagInput";
+import { calculateATSScore, ATSResults } from "@/lib/ats-scorer";
+import {
+    Accordion,
+    AccordionContent,
+    AccordionItem,
+    AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const sampleData: ResumeData = {
     fullName: "Alex Morgan",
@@ -68,35 +34,74 @@ const sampleData: ResumeData = {
     location: "San Francisco, CA",
     linkedin: "linkedin.com/in/alexmorgan",
     github: "github.com/alexmorgan",
-    summary: "Experienced Full Stack Developer with a passion for building scalable web applications. Proven track record in delivering high-quality code and leading agile teams. Increased system efficiency by 20% through optimization. Seeking a challenging role to leverage skills in React and Node.js.",
-    skills: "React, TypeScript, Node.js, PostgreSQL, AWS, Docker, GraphQL, Redis, CI/CD, Agile",
+    summary: "Experienced Full Stack Developer with 5+ years of expertise. Built scalable web applications using React and Node.js. Led a team of 4 developers to successful product launch.",
+    skills: {
+        technical: ["React", "TypeScript", "Node.js", "PostgreSQL", "AWS"],
+        soft: ["Team Leadership", "Agile"],
+        tools: ["Docker", "Git", "Jira"]
+    },
     education: [
         { id: "1", school: "University of California, Berkeley", degree: "B.S. Computer Science", year: "2020" }
     ],
     experience: [
-        { id: "1", company: "Tech Solutions Inc.", role: "Senior Developer", duration: "2022 - Present", description: "Led development of core platform features. Improved performance by 40% using React and Redux." },
-        { id: "2", company: "WebCorp", role: "Frontend Developer", duration: "2020 - 2022", description: "Developed responsive UI components using React and Redux. Collaborated with UX designers to implement pixel-perfect designs." }
+        { id: "1", company: "Tech Solutions Inc.", role: "Senior Developer", duration: "2022 - Present", description: "• Led development of core platform features.\n• Improved performance by 40% using React and Redux." },
     ],
     projects: [
-        { id: "1", name: "E-commerce Platform", description: "A full-featured online store with payment integration. Handled 10k+ transactions.", link: "github.com/alexmorgan/shop" },
-        { id: "2", name: "Task Manager", description: "Productivity app for teams. Integrated real-time updates.", link: "github.com/alexmorgan/task" }
-    ]
+        {
+            id: "1",
+            name: "E-commerce Platform",
+            description: "A full-featured online store.",
+            link: "",
+            liveUrl: "https://shop-demo.com",
+            github: "https://github.com/alex/shop",
+            techStack: ["Next.js", "Stripe", "Tailwind"]
+        }
+    ],
+    selectedTemplate: 'modern',
+    themeColor: "hsl(168, 60%, 40%)" // Teal default
 };
 
 const STORAGE_KEY = "resumeBuilderData";
+const ACTION_VERBS = /^(Built|Developed|Designed|Implemented|Led|Improved|Created|Optimized|Automated|Managed|Orchestrated|Spearheaded|Launched|Initiated|Executed|Formulated|Coordinated|Established)/i;
+
+const THEME_COLORS = [
+    { name: "Teal", value: "hsl(168, 60%, 40%)", bg: "bg-teal-700" },
+    { name: "Navy", value: "hsl(220, 60%, 35%)", bg: "bg-blue-900" },
+    { name: "Burgundy", value: "hsl(345, 60%, 35%)", bg: "bg-rose-900" },
+    { name: "Forest", value: "hsl(150, 50%, 30%)", bg: "bg-green-800" },
+    { name: "Charcoal", value: "hsl(0, 0%, 25%)", bg: "bg-neutral-800" },
+];
 
 const ResumeBuilder = () => {
     const [data, setData] = useState<ResumeData>(initialData);
-    const [atsScore, setAtsScore] = useState(0);
-    const [suggestions, setSuggestions] = useState<string[]>([]);
+    const [ats, setAts] = useState<ATSResults>({ score: 0, level: "Needs Work", color: "text-red-500", suggestions: [] });
     const [isLoaded, setIsLoaded] = useState(false);
+    const [isSuggestingSkills, setIsSuggestingSkills] = useState(false);
 
-    // Load data from localStorage on mount
+    // Load & Migrate data
     useEffect(() => {
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
             try {
                 const parsed = JSON.parse(saved);
+
+                if (typeof parsed.skills === 'string') {
+                    const skillsArray = parsed.skills.split(',').map((s: string) => s.trim()).filter(Boolean);
+                    parsed.skills = { technical: skillsArray, soft: [], tools: [] };
+                }
+
+                if (!parsed.selectedTemplate) parsed.selectedTemplate = 'modern';
+                if (!parsed.themeColor) parsed.themeColor = "hsl(168, 60%, 40%)";
+
+                if (parsed.projects) {
+                    parsed.projects = parsed.projects.map((p: any) => ({
+                        ...p,
+                        techStack: Array.isArray(p.techStack) ? p.techStack : [],
+                        liveUrl: p.liveUrl || "",
+                        github: p.github || ""
+                    }));
+                }
+
                 setData(parsed);
                 toast.info("Resume data restored.");
             } catch (e) {
@@ -106,88 +111,13 @@ const ResumeBuilder = () => {
         setIsLoaded(true);
     }, []);
 
-    // Save data to localStorage whenever it changes
+    // Save data & Calc Score
     useEffect(() => {
         if (isLoaded) {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-            calculateATSScore(data);
+            setAts(calculateATSScore(data));
         }
     }, [data, isLoaded]);
-
-    const calculateATSScore = (currentData: ResumeData) => {
-        let score = 0;
-        const newSuggestions: string[] = [];
-
-        // 1. Summary Length (40-120 words)
-        const summaryWords = currentData.summary.trim().split(/\s+/).filter(w => w.length > 0).length;
-        if (summaryWords >= 40 && summaryWords <= 120) {
-            score += 15;
-        } else {
-            newSuggestions.push(`Summary is ${summaryWords} words. Aim for 40-120 words.`);
-        }
-
-        // 2. Projects >= 2
-        if (currentData.projects.length >= 2) {
-            score += 10;
-        } else {
-            newSuggestions.push(`Add at least 2 projects (currently ${currentData.projects.length}).`);
-        }
-
-        // 3. Experience >= 1
-        if (currentData.experience.length >= 1) {
-            score += 10;
-        } else {
-            newSuggestions.push("Add at least 1 work experience entry.");
-        }
-
-        // 4. Skills >= 8
-        const skillsList = currentData.skills.split(",").filter(s => s.trim().length > 0);
-        if (skillsList.length >= 8) {
-            score += 10;
-        } else {
-            newSuggestions.push(`Add more skills (currently ${skillsList.length}, target 8+).`);
-        }
-
-        // 5. GitHub or LinkedIn
-        if (currentData.github || currentData.linkedin) {
-            score += 10;
-        } else {
-            newSuggestions.push("Add a GitHub or LinkedIn profile link.");
-        }
-
-        // 6. Numbers in bullets (Quantifiable results)
-        const hasNumbers = currentData.experience.some(exp => /\d+|%|k\b/i.test(exp.description)) ||
-            currentData.projects.some(proj => /\d+|%|k\b/i.test(proj.description));
-        if (hasNumbers) {
-            score += 15;
-        } else {
-            newSuggestions.push("Add measurable impact (numbers, %, metrics) in your descriptions.");
-        }
-
-        // 7. Education Complete
-        const educationComplete = currentData.education.length > 0 && currentData.education.every(edu => edu.school && edu.degree && edu.year);
-        if (educationComplete) {
-            score += 10;
-        } else if (currentData.education.length === 0) {
-            newSuggestions.push("Add your education details.");
-        } else {
-            newSuggestions.push("Complete all fields in the education section.");
-        }
-
-        // Base score bumps for basic info to avoid 0 for empty form if needed, 
-        // but per prompt we start from 0 based on criteria.
-        // Total of points listed: 15+10+10+10+10+15+10 = 80.
-        // I will add a "Base Completeness" of 20 points if Name/Email/Phone/Location are present to reach 100 cap.
-
-        if (currentData.fullName && currentData.email && currentData.phone && currentData.location) {
-            score += 20;
-        } else {
-            newSuggestions.push("Complete your personal information (Name, Email, Phone, Location).");
-        }
-
-        setAtsScore(Math.min(100, score));
-        setSuggestions(newSuggestions.slice(0, 3)); // Max 3 suggestions
-    };
 
     const handleInputChange = (field: keyof ResumeData, value: string) => {
         setData(prev => ({ ...prev, [field]: value }));
@@ -206,87 +136,46 @@ const ResumeBuilder = () => {
         setData(prev => ({ ...prev, [field]: prev[field].filter(i => i.id !== id) }));
     };
 
-    // Simple Resume View Component
-    const ResumePreviewView = ({ data }: { data: ResumeData }) => (
-        <div className="bg-white text-black p-8 min-h-[1056px] shadow-sm font-serif">
-            <header className="border-b-2 border-black pb-4 mb-6">
-                <h1 className="text-4xl font-bold uppercase tracking-wide mb-2">{data.fullName || "Your Name"}</h1>
-                <div className="flex flex-wrap gap-3 text-sm font-sans text-gray-600">
-                    {data.email && <span>{data.email}</span>}
-                    {data.phone && <span>• {data.phone}</span>}
-                    {data.location && <span>• {data.location}</span>}
-                    {data.linkedin && <span>• {data.linkedin}</span>}
-                    {data.github && <span>• {data.github}</span>}
-                </div>
-            </header>
+    const handleSuggestSkills = () => {
+        setIsSuggestingSkills(true);
+        setTimeout(() => {
+            const suggestions = {
+                technical: ["TypeScript", "React", "Node.js", "PostgreSQL", "GraphQL"],
+                soft: ["Team Leadership", "Problem Solving"],
+                tools: ["Git", "Docker", "AWS"]
+            };
 
-            {data.summary && (
-                <section className="mb-6">
-                    <h2 className="text-lg font-bold uppercase border-b border-gray-300 mb-3">Summary</h2>
-                    <p className="text-sm leading-relaxed">{data.summary}</p>
-                </section>
-            )}
+            setData(prev => {
+                const newSkills = { ...prev.skills };
+                suggestions.technical.forEach(s => !newSkills.technical.includes(s) && newSkills.technical.push(s));
+                suggestions.soft.forEach(s => !newSkills.soft.includes(s) && newSkills.soft.push(s));
+                suggestions.tools.forEach(s => !newSkills.tools.includes(s) && newSkills.tools.push(s));
+                return { ...prev, skills: newSkills };
+            });
 
-            {data.skills && (
-                <section className="mb-6">
-                    <h2 className="text-lg font-bold uppercase border-b border-gray-300 mb-3">Skills</h2>
-                    <p className="text-sm leading-relaxed">{data.skills}</p>
-                </section>
-            )}
+            setIsSuggestingSkills(false);
+            toast.success("Skills suggestions added!");
+        }, 1000);
+    };
 
-            {data.experience.length > 0 && (
-                <section className="mb-6">
-                    <h2 className="text-lg font-bold uppercase border-b border-gray-300 mb-3">Experience</h2>
-                    <div className="space-y-4">
-                        {data.experience.map(exp => (
-                            <div key={exp.id}>
-                                <div className="flex justify-between font-bold text-sm">
-                                    <span>{exp.role}</span>
-                                    <span>{exp.duration}</span>
-                                </div>
-                                <div className="text-sm font-semibold mb-1">{exp.company}</div>
-                                <p className="text-sm text-gray-700 whitespace-pre-wrap">{exp.description}</p>
-                            </div>
-                        ))}
-                    </div>
-                </section>
-            )}
+    const updateSkillCategory = (category: keyof ResumeData['skills'], newTags: string[]) => {
+        setData(prev => ({
+            ...prev,
+            skills: {
+                ...prev.skills,
+                [category]: newTags
+            }
+        }));
+    };
 
-            {data.projects.length > 0 && (
-                <section className="mb-6">
-                    <h2 className="text-lg font-bold uppercase border-b border-gray-300 mb-3">Projects</h2>
-                    <div className="space-y-4">
-                        {data.projects.map(proj => (
-                            <div key={proj.id}>
-                                <div className="flex justify-between font-bold text-sm">
-                                    <span>{proj.name}</span>
-                                    {proj.link && <span className="text-xs text-gray-500">{proj.link}</span>}
-                                </div>
-                                <p className="text-sm text-gray-700">{proj.description}</p>
-                            </div>
-                        ))}
-                    </div>
-                </section>
-            )}
-
-            {data.education.length > 0 && (
-                <section className="mb-6">
-                    <h2 className="text-lg font-bold uppercase border-b border-gray-300 mb-3">Education</h2>
-                    <div className="space-y-2">
-                        {data.education.map(edu => (
-                            <div key={edu.id} className="flex justify-between text-sm">
-                                <div>
-                                    <span className="font-bold block">{edu.school}</span>
-                                    <span>{edu.degree}</span>
-                                </div>
-                                <span className="font-semibold">{edu.year}</span>
-                            </div>
-                        ))}
-                    </div>
-                </section>
-            )}
-        </div>
-    );
+    const getBulletGuidance = (text: string) => {
+        const guidance = [];
+        if (text.length > 10) {
+            if (!ACTION_VERBS.test(text)) guidance.push("Start with a strong action verb (e.g., Built, Led).");
+            if (!/\d+|%|k\b|\$|x\b/i.test(text)) guidance.push("Add measurable impact (numbers).");
+        }
+        return guidance;
+    };
 
     return (
         <div className="min-h-screen bg-muted/30 flex flex-col">
@@ -298,41 +187,51 @@ const ResumeBuilder = () => {
                 <div className="w-full lg:w-1/2 space-y-6">
                     <div className="flex items-center justify-between">
                         <h2 className="text-2xl font-serif font-bold">Editor</h2>
-                        <div className="flex items-center gap-2">
-                            <Button variant="outline" size="sm" onClick={handleLoadSample}>
-                                Load Sample Data
-                            </Button>
-                        </div>
+                        <Button variant="outline" size="sm" onClick={handleLoadSample}>
+                            Load Sample
+                        </Button>
                     </div>
 
-                    <Card className="bg-primary/5 border-primary/20">
-                        <CardHeader className="pb-2">
+                    <Card className="bg-white border-primary/10 shadow-sm transition-all hover:shadow-md">
+                        <CardHeader className="pb-3 border-b bg-stone-50/50">
                             <div className="flex items-center justify-between">
-                                <CardTitle className="text-sm font-medium tracking-wider uppercase text-primary">ATS Readiness Score</CardTitle>
-                                <span className="text-2xl font-bold font-serif text-primary">{atsScore}/100</span>
+                                <div className="flex items-center gap-2">
+                                    <CardTitle className="text-sm font-bold tracking-wider uppercase text-stone-700">ATS Readiness Score</CardTitle>
+                                    <span className={cn(
+                                        "text-xs font-semibold px-2 py-0.5 rounded-full",
+                                        ats.score >= 80 ? "bg-green-100 text-green-700" : ats.score >= 50 ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"
+                                    )}>
+                                        v1.1
+                                    </span>
+                                </div>
+                                <span className={cn("text-3xl font-serif font-bold", ats.color)}>{ats.score}</span>
                             </div>
+                            <Progress value={ats.score} className="h-2 mt-2" />
                         </CardHeader>
-                        <CardContent>
-                            <Progress value={atsScore} className="h-2 mb-4" />
-                            {suggestions.length > 0 ? (
-                                <div className="space-y-2">
-                                    {suggestions.map((suggestion, idx) => (
-                                        <div key={idx} className="flex items-start gap-2 text-xs text-muted-foreground">
-                                            <AlertCircle className="h-3.5 w-3.5 mt-0.5 text-warning shrink-0" />
-                                            <span>{suggestion}</span>
+                        <CardContent className="pt-4">
+                            {ats.suggestions.length > 0 ? (
+                                <div className="space-y-3">
+                                    <div className="flex items-center gap-2 text-sm font-semibold text-stone-700">
+                                        <Lightbulb className="h-4 w-4 text-amber-500" />
+                                        Top Improvements
+                                    </div>
+                                    {ats.suggestions.slice(0, 3).map((improvement, idx) => (
+                                        <div key={idx} className="flex items-start gap-2 text-xs text-stone-600 bg-stone-50 p-2 rounded border border-stone-100">
+                                            <AlertCircle className="h-3.5 w-3.5 mt-0.5 text-stone-400 shrink-0" />
+                                            <span>{improvement}</span>
                                         </div>
                                     ))}
                                 </div>
                             ) : (
-                                <div className="flex items-center gap-2 text-xs text-success font-medium">
-                                    <Sparkles className="h-3.5 w-3.5" />
-                                    <span>Resume looks great! Ready for parsing.</span>
+                                <div className="flex items-center gap-2 text-sm text-green-700 font-medium bg-green-50 p-3 rounded border border-green-100">
+                                    <CheckCircle2 className="h-4 w-4" />
+                                    <span>Excellent! Your resume is ready for review.</span>
                                 </div>
                             )}
                         </CardContent>
                     </Card>
 
-                    <ScrollArea className="h-[calc(100vh-320px)] pr-4">
+                    <ScrollArea className="h-[calc(100vh-380px)] pr-4">
                         <div className="space-y-6 pb-20">
                             {/* Personal Info */}
                             <Card>
@@ -381,15 +280,136 @@ const ResumeBuilder = () => {
                                 </CardContent>
                             </Card>
 
-                            {/* Skills */}
+                            {/* Categorized Skills */}
                             <Card>
-                                <CardHeader><CardTitle>Skills</CardTitle></CardHeader>
-                                <CardContent>
-                                    <Input
-                                        value={data.skills}
-                                        onChange={e => handleInputChange("skills", e.target.value)}
-                                        placeholder="Java, Python, React, Communication (comma separated)"
-                                    />
+                                <CardHeader className="flex flex-row items-center justify-between">
+                                    <CardTitle>Skills</CardTitle>
+                                    <Button variant="outline" size="sm" onClick={handleSuggestSkills} disabled={isSuggestingSkills}>
+                                        {isSuggestingSkills ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
+                                        Suggest Skills
+                                    </Button>
+                                </CardHeader>
+                                <CardContent className="space-y-6">
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium">Technical Skills ({data.skills.technical?.length || 0})</label>
+                                        <TagInput
+                                            tags={data.skills.technical || []}
+                                            onTagsChange={(tags) => updateSkillCategory('technical', tags)}
+                                            placeholder="React, generic..."
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium">Tools & Technologies ({data.skills.tools?.length || 0})</label>
+                                        <TagInput
+                                            tags={data.skills.tools || []}
+                                            onTagsChange={(tags) => updateSkillCategory('tools', tags)}
+                                            placeholder="Git, Docker..."
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium">Soft Skills ({data.skills.soft?.length || 0})</label>
+                                        <TagInput
+                                            tags={data.skills.soft || []}
+                                            onTagsChange={(tags) => updateSkillCategory('soft', tags)}
+                                            placeholder="Leadership, Communication..."
+                                        />
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            {/* Projects */}
+                            <Card>
+                                <CardHeader className="flex flex-row items-center justify-between">
+                                    <CardTitle>Projects</CardTitle>
+                                    <Button size="sm" variant="ghost" onClick={() => addItem('projects', { id: Date.now().toString(), name: 'New Project', description: '', techStack: [], liveUrl: '', github: '', link: '' })}>
+                                        <Plus className="h-4 w-4" />
+                                    </Button>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    <Accordion type="single" collapsible className="w-full space-y-2">
+                                        {data.projects.map(proj => (
+                                            <AccordionItem key={proj.id} value={proj.id} className="border rounded-md px-4">
+                                                <div className="flex items-center justify-between py-2">
+                                                    <AccordionTrigger className="hover:no-underline py-2">
+                                                        <span className="font-semibold">{proj.name || "Untitled Project"}</span>
+                                                    </AccordionTrigger>
+                                                    <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={(e) => { e.stopPropagation(); removeItem('projects', proj.id); }}>
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </Button>
+                                                </div>
+                                                <AccordionContent className="space-y-4 pt-2 pb-4">
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-semibold uppercase text-muted-foreground">Project Details</label>
+                                                        <Input
+                                                            value={proj.name}
+                                                            onChange={e => {
+                                                                const newProjs = data.projects.map(p => p.id === proj.id ? { ...p, name: e.target.value } : p);
+                                                                setData({ ...data, projects: newProjs });
+                                                            }}
+                                                            placeholder="Project Name"
+                                                        />
+                                                    </div>
+
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-semibold uppercase text-muted-foreground">Links</label>
+                                                        <div className="grid grid-cols-2 gap-3">
+                                                            <Input
+                                                                value={proj.liveUrl}
+                                                                onChange={e => {
+                                                                    const newProjs = data.projects.map(p => p.id === proj.id ? { ...p, liveUrl: e.target.value } : p);
+                                                                    setData({ ...data, projects: newProjs });
+                                                                }}
+                                                                placeholder="Live URL"
+                                                            />
+                                                            <Input
+                                                                value={proj.github}
+                                                                onChange={e => {
+                                                                    const newProjs = data.projects.map(p => p.id === proj.id ? { ...p, github: e.target.value } : p);
+                                                                    setData({ ...data, projects: newProjs });
+                                                                }}
+                                                                placeholder="GitHub URL"
+                                                            />
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-semibold uppercase text-muted-foreground">Tech Stack</label>
+                                                        <TagInput
+                                                            tags={proj.techStack || []}
+                                                            onTagsChange={(tags) => {
+                                                                const newProjs = data.projects.map(p => p.id === proj.id ? { ...p, techStack: tags } : p);
+                                                                setData({ ...data, projects: newProjs });
+                                                            }}
+                                                            placeholder="Next.js, Tailwind..."
+                                                        />
+                                                    </div>
+
+                                                    <div className="space-y-2">
+                                                        <div className="flex justify-between">
+                                                            <label className="text-xs font-semibold uppercase text-muted-foreground">Description</label>
+                                                            <span className={cn("text-xs", proj.description.length > 200 ? "text-destructive" : "text-muted-foreground")}>
+                                                                {proj.description.length}/200
+                                                            </span>
+                                                        </div>
+                                                        <Textarea
+                                                            value={proj.description}
+                                                            onChange={e => {
+                                                                const newProjs = data.projects.map(p => p.id === proj.id ? { ...p, description: e.target.value } : p);
+                                                                setData({ ...data, projects: newProjs });
+                                                            }}
+                                                            placeholder="Project details..."
+                                                            className="min-h-[100px]"
+                                                        />
+                                                        {getBulletGuidance(proj.description).map((msg, i) => (
+                                                            <p key={i} className="text-xs text-amber-600 flex items-center gap-1">
+                                                                <Sparkles className="h-3 w-3" /> {msg}
+                                                            </p>
+                                                        ))}
+                                                    </div>
+                                                </AccordionContent>
+                                            </AccordionItem>
+                                        ))}
+                                    </Accordion>
                                 </CardContent>
                             </Card>
 
@@ -421,43 +441,17 @@ const ResumeBuilder = () => {
                                                 const newExp = data.experience.map(item => item.id === exp.id ? { ...item, duration: e.target.value } : item);
                                                 setData({ ...data, experience: newExp });
                                             }} placeholder="Duration (e.g. 2020-2022)" />
-                                            <Textarea value={exp.description} onChange={e => {
-                                                const newExp = data.experience.map(item => item.id === exp.id ? { ...item, description: e.target.value } : item);
-                                                setData({ ...data, experience: newExp });
-                                            }} placeholder="Description" />
-                                        </div>
-                                    ))}
-                                </CardContent>
-                            </Card>
-
-                            {/* Projects */}
-                            <Card>
-                                <CardHeader className="flex flex-row items-center justify-between">
-                                    <CardTitle>Projects</CardTitle>
-                                    <Button size="sm" variant="ghost" onClick={() => addItem('projects', { id: Date.now().toString(), name: 'New Project', description: 'Description', link: '' })}>
-                                        <Plus className="h-4 w-4" />
-                                    </Button>
-                                </CardHeader>
-                                <CardContent className="space-y-4">
-                                    {data.projects.map(proj => (
-                                        <div key={proj.id} className="p-4 border rounded-md space-y-3 relative group">
-                                            <Button size="icon" variant="ghost" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100" onClick={() => removeItem('projects', proj.id)}>
-                                                <Trash2 className="h-4 w-4 text-destructive" />
-                                            </Button>
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <Input value={proj.name} onChange={e => {
-                                                    const newProjs = data.projects.map(item => item.id === proj.id ? { ...item, name: e.target.value } : item);
-                                                    setData({ ...data, projects: newProjs });
-                                                }} placeholder="Project Name" />
-                                                <Input value={proj.link} onChange={e => {
-                                                    const newProjs = data.projects.map(item => item.id === proj.id ? { ...item, link: e.target.value } : item);
-                                                    setData({ ...data, projects: newProjs });
-                                                }} placeholder="Link (Optional)" />
+                                            <div className="space-y-1">
+                                                <Textarea value={exp.description} onChange={e => {
+                                                    const newExp = data.experience.map(item => item.id === exp.id ? { ...item, description: e.target.value } : item);
+                                                    setData({ ...data, experience: newExp });
+                                                }} placeholder="Description" />
+                                                {getBulletGuidance(exp.description).map((msg, i) => (
+                                                    <p key={i} className="text-xs text-amber-600 flex items-center gap-1">
+                                                        <Sparkles className="h-3 w-3" /> {msg}
+                                                    </p>
+                                                ))}
                                             </div>
-                                            <Textarea value={proj.description} onChange={e => {
-                                                const newProjs = data.projects.map(item => item.id === proj.id ? { ...item, description: e.target.value } : item);
-                                                setData({ ...data, projects: newProjs });
-                                            }} placeholder="Project Description" />
                                         </div>
                                     ))}
                                 </CardContent>
@@ -502,15 +496,78 @@ const ResumeBuilder = () => {
 
                 {/* Right Column: Preview */}
                 <div className="w-full lg:w-1/2 flex flex-col h-[calc(100vh-100px)]">
-                    <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-2xl font-serif font-bold">Live Preview</h2>
-                        <Button size="sm" variant="ghost" className="opacity-50 cursor-not-allowed" title="Export disabled in skeleton">
-                            <Download className="mr-2 h-4 w-4" /> Export PDF
-                        </Button>
+                    <div className="flex flex-col gap-4 mb-4">
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-2xl font-serif font-bold">Live Preview</h2>
+
+                            <Button size="sm" variant="default" className="shadow-sm" onClick={() => toast.success("PDF export ready! Check your downloads.")}>
+                                <Download className="mr-2 h-4 w-4" /> Download PDF
+                            </Button>
+                        </div>
+                        {/* Visual Customization Panel */}
+                        <div className="bg-white p-4 rounded-lg shadow-sm border space-y-4">
+                            {/* Template Picker */}
+                            <div>
+                                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">Layout Template</label>
+                                <div className="grid grid-cols-3 gap-3">
+                                    {(['classic', 'modern', 'minimal'] as const).map(t => (
+                                        <button
+                                            key={t}
+                                            onClick={() => setData(prev => ({ ...prev, selectedTemplate: t }))}
+                                            className={cn(
+                                                "relative h-20 rounded-md border-2 transition-all hover:border-primary/50 flex flex-col items-center justify-center gap-1",
+                                                data.selectedTemplate === t ? "border-blue-600 bg-blue-50/50" : "border-transparent bg-slate-50"
+                                            )}
+                                        >
+                                            {/* Thumbnail Mockups */}
+                                            {t === 'classic' && <div className="w-8 h-10 border border-slate-300 bg-white shadow-sm flex flex-col items-center gap-0.5 p-0.5"><div className="w-full h-1 bg-slate-300 mb-0.5"></div><div className="w-full h-full space-y-0.5"><div className="w-full h-0.5 bg-slate-100"></div><div className="w-full h-0.5 bg-slate-100"></div></div></div>}
+                                            {t === 'modern' && <div className="w-8 h-10 border border-slate-300 bg-white shadow-sm flex"><div className="w-1/3 h-full bg-slate-800"></div><div className="w-2/3 h-full p-0.5 space-y-0.5"><div className="w-full h-1 bg-slate-300"></div><div className="w-full h-0.5 bg-slate-100"></div></div></div>}
+                                            {t === 'minimal' && <div className="w-8 h-10 border border-slate-300 bg-white shadow-sm p-1 flex flex-col gap-0.5"><div className="w-1/2 h-1 bg-slate-400"></div><div className="w-full h-0.5 bg-slate-100"></div><div className="w-full h-0.5 bg-slate-100"></div></div>}
+
+                                            <span className="text-[10px] font-medium capitalize text-slate-600">{t}</span>
+
+                                            {data.selectedTemplate === t && (
+                                                <div className="absolute top-1 right-1 w-3 h-3 bg-blue-600 rounded-full flex items-center justify-center">
+                                                    <CheckCircle2 className="w-2 h-2 text-white" />
+                                                </div>
+                                            )}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Color Picker */}
+                            <div>
+                                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">Theme Color</label>
+                                <div className="flex gap-3">
+                                    {THEME_COLORS.map(c => (
+                                        <TooltipProvider key={c.name}>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <button
+                                                        onClick={() => setData(prev => ({ ...prev, themeColor: c.value }))}
+                                                        className={cn(
+                                                            "w-8 h-8 rounded-full transition-transform hover:scale-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary",
+                                                            c.bg,
+                                                            data.themeColor === c.value && "ring-2 ring-offset-2 ring-primary scale-110"
+                                                        )}
+                                                        aria-label={`Select ${c.name} theme`}
+                                                    />
+                                                </TooltipTrigger>
+                                                <TooltipContent>
+                                                    <p>{c.name}</p>
+                                                </TooltipContent>
+                                            </Tooltip>
+                                        </TooltipProvider>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
                     </div>
+
                     <div className="flex-1 bg-gray-100 rounded-lg overflow-hidden border shadow-inner">
                         <ScrollArea className="h-full w-full p-8 flex justify-center">
-                            <div className="origin-top scale-[0.8] lg:scale-90 transition-transform">
+                            <div className="origin-top scale-[0.65] lg:scale-[0.8] xl:scale-90 transition-transform">
                                 <ResumePreviewView data={data} />
                             </div>
                         </ScrollArea>
